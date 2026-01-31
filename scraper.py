@@ -51,6 +51,19 @@ def is_valid(url):
         parsed = urlparse(url)
         if parsed.scheme not in set(["http", "https"]):
             return False
+
+        # Noticable trap patterns discovered when running
+        trap_patterns = [
+            r".*calendar.*", 
+            r".*share.*", 
+            r".*ical.*", 
+            r".*wp-login.*",
+            r".*replytocom.*", # Common WordPress comment trap
+            r".*action=.*"      # Catches compose, template, etc.
+        ]
+        if any(re.match(pattern, url.lower()) for pattern in trap_patterns):
+            return False
+
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -64,3 +77,4 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
+
