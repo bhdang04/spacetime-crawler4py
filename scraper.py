@@ -1,12 +1,10 @@
 import re
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urljoin, urldefrag
-
+from urllib.parse import urlparse, urljoin, urldefrag, parse_qs
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
-
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -45,43 +43,68 @@ def extract_next_links(url, resp):
 
     return list()
 
-
 def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
-    # Test
-    #have to make sure that only uci domains are allowed
-    
     try:
-        #Parses the url given to the function, breaking the given URL into
-        #small pieces.
-        allow = False
         parsed = urlparse(url)
+        path = parsed.path.lower()
+        query = (parsed.query or "").lower()
+        q = parse_qs(parsed.query)
+        qkeys = {k.lower() for k in q.keys()}
 
-        #A set containing all the valid domains we can crawl for this assignment.
-        valid_domains = set(["ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu"])
-
-        #Returns a lowercased version of the domain from url.
-        parsed_domain = parsed.netloc.lower()
-
-        #If the scheme of the potential URL isn't an http or https, we return false.
         if parsed.scheme not in set(["http", "https"]):
             return False
         
-        #For every domain in the valid domains list, if the domain from parsed
-        #ends with a valid domain name, we set allow to true and break the loop.
-        for domain in valid_domains:
-            if parsed_domain.endswith(domain):
-                allow = True
-                break
-            if not allow:
-                return False
+        host = parsed.netloc.lower()
+        if ":" in host:
+            host = host.split(":")[0]
+
+        allowed_suffixes = (
+            ".ics.uci.edu",
+            ".cs.uci.edu",
+            ".informatics.uci.edu",
+            ".stat.uci.edu",
+        )
+        allowed_exact = {
+            "ics.uci.edu",
+            "cs.uci.edu",
+            "informatics.uci.edu",
+            "stat.uci.edu",
+        }
+
+        if not (host in allowed_exact or host.endswith(allowed_suffixes)):
+            return False
         
-        #If allow is not true (ie. the parsed_domain does not end with a valid domain), we return false
-        if not allow:
-            return False   
-        elif re.match(
+        if "doku.php" in path:
+            bad_doku_keys = {"do", "idx", "tab_files", "tab_details", "image", "ns", "rev", "sectok"}
+            if qkeys & bad_doku_keys:
+                return False
+
+        if "/events/" in path:
+            if re.search(r"/events/week/\d{4}-\d{2}-\d{2}/?$", path):
+                return False
+            if re.search(r"/events/\d{4}-\d{2}-\d{2}/?$", path):
+                return False
+
+        bad_event_keys = {"tribe-bar-date", "eventdisplay", "eventdate", "post_type", "paged", "tribe__ecp_custom_81"}
+        if qkeys & bad_event_keys:
+            return False
+
+        # Noticable trap patterns discovered when running
+        trap_patterns = [
+            r".*calendar.*", 
+            r".*share.*", 
+            r".*ical.*", 
+            r".*wp-login.*",
+            r".*replytocom.*", # Common WordPress comment trap
+            r".*action=.*"      # Catches compose, template, etc.
+        ]
+        if any(re.match(pattern, url.lower()) for pattern in trap_patterns):
+            return False
+
+        return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
             + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
@@ -89,11 +112,8 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
-                return False
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
 
-        return True
-    
     except TypeError:
         print ("TypeError for ", parsed)
         raise
