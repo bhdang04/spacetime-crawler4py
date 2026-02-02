@@ -1,23 +1,20 @@
 import re
-from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urljoin, urldefrag
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
-    
-    #From the list links, keep onyl the ones where is_valid() is true
     return [link for link in links if is_valid(link)]
 
-
-#Is meant to take in a URL and a response from the server (in this case, a web page).
-#This response will then have all of their hyperlinks extracted and returned as a list.
 def extract_next_links(url, resp):
-    
-    #Note: if resp.status != 200
-    #if resp.status == 603, 607 (toob ig)
+    final_links = []
 
+    #If the resp object or its html content is null, immediately return the final_links
+    if resp.raw_response is None or resp is None:
+        return final_links
+
+    #Creates a BeautifulSoup object named soup using the html content (resp.raw_response.content)
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
-    final_links = ()
 
     #For every link found from scraping the web page
     for link in soup.find_all('a'):
@@ -32,32 +29,20 @@ def extract_next_links(url, resp):
             #If valid, passes it to the final_links list
             final_links.append(potential_URL)
     
-    
-    
-    # Implementation required.
-    # url: the URL that was used to get the page
-    # resp.url: the actual url of the page
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-
-
-
-    return list()
+    return final_links
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
-    # Test
-    #have to make sure that only uci domains are allowed
-    
+
+    #What this does so far is it checks whether the URL passed through the parameter is valid or not.
     try:
-        #Parses the url given to the function, breaking the given URL into
-        #small pieces.
+        
+        #Here we create an allow variable
+        allow = False
+
+        #We parse the given url into a parsed object, which contains its domain, path, etc.
         parsed = urlparse(url)
 
         #A set containing all the valid domains we can crawl for this assignment.
@@ -72,14 +57,45 @@ def is_valid(url):
         
         #For every domain in the valid domains list, if the domain from parsed
         #ends with a valid domain name, we set allow to true and break the loop.
+        #This means that the URL is valid and we're allowed to crawl it
         for domain in valid_domains:
             if parsed_domain.endswith(domain):
                 allow = True
                 break
         
-        #If allow is not true (ie. the parsed_domain does not end with a valid domain), we return false
+        #If allow ends up turning false, we reject the URL
         if not allow:
-            return False   
+                return False
+
+        # Noticable trap patterns discovered when running
+        #trap_patterns contains a list of regex strings which will be used later on to 
+        #check if the URL is a trap.
+        #For example, a calendar is likely to be indicated by the date format "\d{4}-\d{2}-\d{2}"
+        #where d represents digits and {} contains the number of digits. 
+        trap_patterns = [
+            r".*calendar.*",
+            #r".*day.*",
+            #r".*week.*",
+            r".*/\d{4}-\d{2}-\d{2}.*",
+            r".*/\d{4}-\d{2}.*",
+            r".*tribe-bar-date.*",
+            r".*share.*", 
+            r".*ical.*", 
+            r".*wp-login.*",
+            r".*replytocom.*", # Common WordPress comment trap
+            r".*action=.*"      # Catches compose, template, etc.
+        ]
+        
+        #Checks if any of the trap_patterns strings are located inside of the url.
+        #If there are, we return false, and don't crawl.
+        if any(re.search(pattern, url.lower()) for pattern in trap_patterns):
+            return False
+
+        #If allow is false, this means that the URL is not in the permitted domain list, so we return False
+        if not allow:
+            return False  
+
+        #Else, if the URL matches any of these invalid formats, we return false 
         elif re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -89,8 +105,9 @@ def is_valid(url):
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
-                return False
-
+               return False
+        
+        #Otherwise, this means that the URL passed all the tests, and is valid.
         return True
     
     except TypeError:
