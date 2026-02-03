@@ -1,44 +1,35 @@
 import re
-from urllib.parse import urlparse
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urljoin, urldefrag
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
-def extract_next_links(url, resp):
-   # Implementation required.
-    # url: the URL that was used to get the page
-    base_url = url
-    # resp.url: the actual url of the page
-    actual_url = getattr(resp, "url", None)
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    if resp is None or resp.status != 200:
-        return []
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    error_msg = getattr(resp, "error", None)
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    if resp.raw_response is None:
-        return []
-    raw_url = getattr(resp.raw_response, "url", None)
-    html_bytes = getattr(resp.raw_response, "content", None)
-    if not html_bytes:
-        return []
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    links = []
-    try: 
-        soup = BeautifulSoup(html_bytes, "lxml")
-    except Exception:
-        return []
-    for tag in soup.find_all("a", href=True):
-        href = tag.get("href")
-        if not href:
-            continue
-        absolute_url = urljoin(base_url, href)
-        absolute_url, _ = urldefrag(absolute_url)
-        links.append(absolute_url)
-    return links
+def extract_next_links(url, resp):  
+    final_links = []
+
+    #If the resp object or its html content is null, immediately return the final_links
+    if resp.raw_response is None or resp is None:
+        return final_links
+
+    #Creates a BeautifulSoup object named soup using the html content (resp.raw_response.content)
+    soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
+
+    #For every link found from scraping the web page
+    for link in soup.find_all('a'):
+        
+        #Retrieve the 'href' associated with the <a> hyperlink tag, which can include URLs, but
+        #we need to check using is_valid()
+        potential_URL = link.get('href')
+
+        #Checks if the potential_URL is valid
+        if is_valid(potential_URL):
+
+            #If valid, passes it to the final_links list
+            final_links.append(potential_URL)
+    
+    return final_links
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
@@ -74,3 +65,5 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
+
+
