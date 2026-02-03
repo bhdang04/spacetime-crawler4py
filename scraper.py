@@ -1,110 +1,143 @@
 import re
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urljoin, urldefrag, parse_qs
+from urllib.parse import urlparse, urljoin, urldefrag
+
+visited = set()
+blacklist = set()
 
 def scraper(url, resp):
+    url = defrag_url(url)
+
+    if not url:
+        return []
+    if url in visited or url in blacklist:
+        return []
+    if resp is None or resp.raw_response is None:
+        blacklist.add(url)
+        return []
+    
+
+    status = getattr(resp, "status", None)
+    if status is None:
+        status = getattr(getattr(resp, "raw_response", None), "status_code", None)
+    if status is None:
+        status = getattr(getattr(resp, "raw_response", None), "status", None)
+
+    if status is not None and status != 200:
+        blacklist.add(url)
+        return []
+
+    visited.add(url)
+
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
+
 def extract_next_links(url, resp):
-    # Implementation required.
-    # url: the URL that was used to get the page
-    base_url = url
-    # resp.url: the actual url of the page
-    actual_url = getattr(resp, "url", None)
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    if resp is None or resp.status != 200:
-        return []
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    error_msg = getattr(resp, "error", None)
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    if resp.raw_response is None:
-        return []
-    raw_url = getattr(resp.raw_response, "url", None)
-    html_bytes = getattr(resp.raw_response, "content", None)
-    if not html_bytes:
-        return []
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    links = []
-    try: 
-        soup = BeautifulSoup(html_bytes, "lxml")
-    except Exception:
-        return []
-    for tag in soup.find_all("a", href=True):
-        href = tag.get("href")
+    final_links = []
+
+    #If the resp object or its html content is null, immediately return the final_links
+    if resp is None or resp.raw_response is None:
+        return final_links
+
+    #Creates a BeautifulSoup object named soup using the html content (resp.raw_response.content)
+    soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
+
+    #For every link found from scraping the web page
+    for link in soup.find_all('a'):
+        
+        #Retrieve the 'href' associated with the <a> hyperlink tag, which can include URLs, but
+        #we need to check using is_valid()
+        href = link.get('href')
+
+        #Checks if the potential_URL is valid
         if not href:
             continue
-        absolute_url = urljoin(base_url, href)
-        absolute_url, _ = urldefrag(absolute_url)
-        links.append(absolute_url)
-    return links
 
-    return list()
+        #If valid, passes it to the final_links list
+        absolute = urljoin(url,href)
+        absolute = defrag_url(absolute)
+        if not absolute:
+            continue
+
+        if absolute in visited or absolute in blacklist:
+            continue
+            
+        if is_valid(absolute):
+            final_links.append(absolute)
+    return final_links
+
+def defrag_url(u):
+    if not u:
+        return None
+    u = u.strip()
+    u, _frag = urldefrag(u)
+    return u
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
-    try:
-        parsed = urlparse(url)
-        path = parsed.path.lower()
-        query = (parsed.query or "").lower()
-        q = parse_qs(parsed.query)
-        qkeys = {k.lower() for k in q.keys()}
 
+    #What this does so far is it checks whether the URL passed through the parameter is valid or not.
+    try:
+        if not url:
+            return False
+        
+        #Here we create an allow variable
+        allow = False
+
+        #We parse the given url into a parsed object, which contains its domain, path, etc.
+        parsed = urlparse(url)
+
+        #A set containing all the valid domains we can crawl for this assignment.
+        valid_domains = set(["ics.uci.edu", "cs.uci.edu", "informatics.uci.edu", "stat.uci.edu"])
+
+        #Returns a lowercased version of the domain from url.
+        parsed_domain = parsed.netloc.lower()
+
+        #If the scheme of the potential URL isn't an http or https, we return false.
         if parsed.scheme not in set(["http", "https"]):
             return False
         
-        host = parsed.netloc.lower()
-        if ":" in host:
-            host = host.split(":")[0]
-
-        allowed_suffixes = (
-            ".ics.uci.edu",
-            ".cs.uci.edu",
-            ".informatics.uci.edu",
-            ".stat.uci.edu",
-        )
-        allowed_exact = {
-            "ics.uci.edu",
-            "cs.uci.edu",
-            "informatics.uci.edu",
-            "stat.uci.edu",
-        }
-
-        if not (host in allowed_exact or host.endswith(allowed_suffixes)):
-            return False
+        #For every domain in the valid domains list, if the domain from parsed
+        #ends with a valid domain name, we set allow to true and break the loop.
+        #This means that the URL is valid and we're allowed to crawl it
+        for domain in valid_domains:
+            if parsed_domain.endswith(domain):
+                allow = True
+                break
         
-        if "doku.php" in path:
-            bad_doku_keys = {"do", "idx", "tab_files", "tab_details", "image", "ns", "rev", "sectok"}
-            if qkeys & bad_doku_keys:
+        #If allow ends up turning false, we reject the URL
+        if not allow:
                 return False
-
-        if "/events/" in path:
-            if re.search(r"/events/week/\d{4}-\d{2}-\d{2}/?$", path):
-                return False
-            if re.search(r"/events/\d{4}-\d{2}-\d{2}/?$", path):
-                return False
-
-        bad_event_keys = {"tribe-bar-date", "eventdisplay", "eventdate", "post_type", "paged", "tribe__ecp_custom_81"}
-        if qkeys & bad_event_keys:
-            return False
 
         # Noticable trap patterns discovered when running
+        #trap_patterns contains a list of regex strings which will be used later on to 
+        #check if the URL is a trap.
+        #For example, a calendar is likely to be indicated by the date format "\d{4}-\d{2}-\d{2}"
+        #where d represents digits and {} contains the number of digits. 
         trap_patterns = [
-            r".*calendar.*", 
+            r".*calendar.*",
+            r".*/\d{4}-\d{2}-\d{2}.*",
+            r".*/\d{4}-\d{2}.*",
+            r".*tribe-bar-date.*",
             r".*share.*", 
             r".*ical.*", 
             r".*wp-login.*",
             r".*replytocom.*", # Common WordPress comment trap
-            r".*action=.*"      # Catches compose, template, etc.
+            r".*action=.*",      # Catches compose, template, etc.
+            r".*[\?&;]c=[dnsm].*[\?&;]o=[ad].*", #catches C=D;O=A ?C=N; O=D
+            r".*/author/.*/page/\d+.*", #Ends the WICS crawler trap
         ]
-        if any(re.match(pattern, url.lower()) for pattern in trap_patterns):
+        
+        #Checks if any of the trap_patterns strings are located inside of the url.
+        #If there are, we return false, and don't crawl.
+        if any(re.search(pattern, url.lower()) for pattern in trap_patterns):
             return False
 
-        return not re.match(
+        #Else, if the URL matches any of these invalid formats, we return false 
+        elif re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
             + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
@@ -112,8 +145,17 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
-
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
+               return False
+        
+        if len(url) > 300:
+            return False
+        if url.count("&") > 10:
+            return False
+        
+        #Otherwise, this means that the URL passed all the tests, and is valid.
+        return True
+    
     except TypeError:
         print ("TypeError for ", parsed)
         raise
