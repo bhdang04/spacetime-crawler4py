@@ -2,33 +2,10 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin, urldefrag
 
-visited = set()
-blacklist = set()
+visited = set() # URLs we have successfully processed
+blacklist = set() #URLs we deicded traps/ bad content
 
 def scraper(url, resp):
-    url = defrag_url(url)
-
-    if not url:
-        return []
-    if url in visited or url in blacklist:
-        return []
-    if resp is None or resp.raw_response is None:
-        blacklist.add(url)
-        return []
-    
-
-    status = getattr(resp, "status", None)
-    if status is None:
-        status = getattr(getattr(resp, "raw_response", None), "status_code", None)
-    if status is None:
-        status = getattr(getattr(resp, "raw_response", None), "status", None)
-
-    if status is not None and status != 200:
-        blacklist.add(url)
-        return []
-
-    visited.add(url)
-
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
@@ -36,9 +13,42 @@ def scraper(url, resp):
 def extract_next_links(url, resp):
     final_links = []
 
-    #If the resp object or its html content is null, immediately return the final_links
-    if resp is None or resp.raw_response is None:
+    #Remove URL fragments so uniqueness stays #'s
+    url = defrag_url(url)
+    if not url:
         return final_links
+
+
+    #If we've sene or rejected URL why process it?
+    if url in visited or url in blacklist or resp is None or resp.raw_response is None:
+        blacklist.add(url)
+        return final_links
+
+    #Only treat 4xx/5xx or more pages as bad pages
+    status = getattr(resp.raw_response, "status_code", None)
+    if status is not None and status >= 400:
+        blacklist.add(url)
+        return final_links
+
+    #Examine the current page path for known trap sections
+    parsed_page = urlparse(url)
+    path_lower = (parsed_page.path or "").lower()
+
+    #These folders contain large collection of files not useful
+    if "/files/" in path_lower or "/papers/" in path_lower or "/publications/" in path_lower:
+        blacklist.add(url)
+        return final_links
+
+    visited.add(url)
+
+    #WordPress upload directory = binary files
+    if "/wp-content/" in path_lower:
+        blacklist.add(url)
+        return final_links
+
+    
+    #This is the point where a page is considered safe to process
+    visited.add(url)
 
     #Creates a BeautifulSoup object named soup using the html content (resp.raw_response.content)
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
