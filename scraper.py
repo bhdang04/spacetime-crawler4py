@@ -4,13 +4,14 @@ from urllib.parse import urlparse, urljoin, urldefrag
 
 visited = set() # URLs we have successfully processed
 blacklist = set() #URLs we decided traps/ bad content
+url_depths = {}
 
 def scraper(url, resp):
-    links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    curr_depth = url_depths.get(url, 0)
+    links = extract_next_links(url, resp, curr_depth)
+    return [link for link, depth in links if is_valid(link, depth)]
 
-
-def extract_next_links(url, resp):
+def extract_next_links(url, resp, curr_depth=0):
     final_links = []
 
     #Remove URL fragments so uniqueness stays #'s
@@ -30,7 +31,6 @@ def extract_next_links(url, resp):
         print(status)
         return final_links
 
-
     #Examine the current page path for known trap sections
     parsed_page = urlparse(url)
     path_lower = (parsed_page.path or "").lower()
@@ -44,8 +44,6 @@ def extract_next_links(url, resp):
     if "/wp-content/" in path_lower:
         blacklist.add(url)
         return final_links
-
-
     
     #This is the point where a page is considered safe to process
     visited.add(url)
@@ -69,19 +67,17 @@ def extract_next_links(url, resp):
         try:
             absolute = urljoin(url,href)
             absolute = defrag_url(absolute)
+            
+            if not absolute or absolute in visited or absolute in blacklist:
+                continue
+
+            new_depth = curr_depth + 1
+
+            if is_valid(absolute, new_depth):
+                url_depths[absolute] = new_depth
+                final_links.append((absolute, new_depth))
         except ValueError:
             continue
-        
-        #Is this portion necessary? 
-        if not absolute:
-            continue
-
-        if absolute in visited or absolute in blacklist:
-            continue
-        
-        #If valid, passes it to the final_links list
-        if is_valid(absolute):
-            final_links.append(absolute)
         
     return final_links
 
@@ -92,11 +88,15 @@ def defrag_url(u):
     u, _frag = urldefrag(u)
     return u
 
-def is_valid(url):
+def is_valid(url, depth=0, max_depth=10):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
 
+    # Implemented a Depth Checker for unique links
+    if depth > max_depth:
+        return False
+    
     #What this does so far is it checks whether the URL passed through the parameter is valid or not.
     try:
         #if no url is passed, return false.
@@ -157,6 +157,9 @@ def is_valid(url):
             r".*action=.*",      # Catches compose, template, etc.
             r".*[\?&;]c=[dnsm].*[\?&;]o=[ad].*", #catches C=D;O=A ?C=N; O=D
             r".*/author/.*/page/\d+.*", #Ends the WICS crawler trap
+            r".*/login.*", #Get rid of login pages
+            r".*/activity.*" # Found in logs returning 608
+            r".*/projects.*" # Found in logs returning 608
         ]
         
         #Checks if any of the trap_patterns strings are located inside of the url.
