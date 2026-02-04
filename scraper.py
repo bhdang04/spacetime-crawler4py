@@ -94,6 +94,18 @@ def extract_next_links(url, resp, curr_depth=0):
         if not href:
             continue
 
+        """
+            base = url
+            p = urlparse(base)
+
+            last_segment = p.path.split("/")[-1]
+            if not p.path.endswith("/") and "." not in last_segment:
+                base = base + "/"
+            
+            absolute = urljoin(base, href)
+            absolute = defrag_url(absolute)
+        """
+
         #This block catches URLs that have correct href input types (ie. contain a hyperlink), but 
         #don't lead to a valid IP or destination / aren't in the right format.
         try:
