@@ -1,16 +1,44 @@
 import re
 from bs4 import BeautifulSoup
+from collections import Counter, defaultdict
 from urllib.parse import urlparse, urljoin, urldefrag
 
 visited = set() # URLs we have successfully processed
 blacklist = set() #URLs we decided traps/ bad content
+url_depths = {}
+
+#Analytics
+Common_Words = Counter()
+Subdomains = defaultdict(int)
+Longest_Page = [" ", 0] #A list containing the current longest URL and it's token count.
+
+
+Stop_Words = {
+    "a","an","and","are","as","at","be","but","by","for","from","has","have",
+    "he","her","hers","him","his","i","if","in","into","is","it","its","me",
+    "my","not","of","on","or","our","ours","she","so","that","the","their",
+    "theirs","them","then","there","these","they","this","those","to","us",
+    "was","we","were","what","when","where","which","who","why","will","with",
+    "you","your","yours"
+}
+
+##########
+#HELPER###
+##########
+
+def defrag_url(u):
+    if not u:
+        return None
+    u = u.strip()
+    u, _frag = urldefrag(u)
+    return u
 
 def scraper(url, resp):
-    links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    curr_depth = url_depths.get(url, 0)
+    links = extract_next_links(url, resp, curr_depth)
+    return [link for link, depth in links if is_valid(link, depth)]
 
-
-def extract_next_links(url, resp):
+def extract_next_links(url, resp, curr_depth=0):
     final_links = []
 
     #Remove URL fragments so uniqueness stays #'s
@@ -30,7 +58,6 @@ def extract_next_links(url, resp):
         print(status)
         return final_links
 
-
     #Examine the current page path for known trap sections
     parsed_page = urlparse(url)
     path_lower = (parsed_page.path or "").lower()
@@ -44,14 +71,23 @@ def extract_next_links(url, resp):
     if "/wp-content/" in path_lower:
         blacklist.add(url)
         return final_links
-
-
     
     #This is the point where a page is considered safe to process
     visited.add(url)
 
     #Creates a BeautifulSoup object named soup using the html content (resp.raw_response.content)
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
+
+    update_common_words_from_soup(soup)
+    update_subdomain_count(url)
+    update_size(url, soup)
+
+
+    #For every 10 successful urls, we call the analytics
+    if len(visited) % 10 == 0:
+        write_top_50()
+        write_subdomains()
+        write_longest_page()
 
     #For every link found from scraping the web page
     for link in soup.find_all('a'):
@@ -67,36 +103,39 @@ def extract_next_links(url, resp):
         #This block catches URLs that have correct href input types (ie. contain a hyperlink), but 
         #don't lead to a valid IP or destination / aren't in the right format.
         try:
-            absolute = urljoin(url,href)
+            base = url
+            p = urlparse(base)
+
+            last_segment = p.path.split("/")[-1]
+            if not p.path.endswith("/") and "." not in last_segment:
+                base = base + "/"
+                
+            absolute = urljoin(base, href)
             absolute = defrag_url(absolute)
+            
+            if not absolute or absolute in visited or absolute in blacklist:
+                continue
+
+            new_depth = curr_depth + 1
+
+            if is_valid(absolute, new_depth):
+                url_depths[absolute] = new_depth
+                final_links.append((absolute, new_depth))
         except ValueError:
             continue
         
-        #Is this portion necessary? 
-        if not absolute:
-            continue
-
-        if absolute in visited or absolute in blacklist:
-            continue
-        
-        #If valid, passes it to the final_links list
-        if is_valid(absolute):
-            final_links.append(absolute)
-        
     return final_links
 
-def defrag_url(u):
-    if not u:
-        return None
-    u = u.strip()
-    u, _frag = urldefrag(u)
-    return u
 
-def is_valid(url):
+def is_valid(url, depth=0, max_depth=10):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
 
+    # Implemented a Depth Checker for unique links
+    if depth > max_depth:
+        return False
+    
     #What this does so far is it checks whether the URL passed through the parameter is valid or not.
     try:
         #if no url is passed, return false.
@@ -108,6 +147,11 @@ def is_valid(url):
 
         #We parse the given url into a parsed object, which contains its domain, path, etc.
         parsed = urlparse(url)
+
+        path = parsed.path.lower()
+
+        if path.startswith("/releases/") and "/src/" in path:
+            return False
 
         #If the parsed object contains a query component, mark the URL as invalid.
         #This is because query pages often lead to traps, due to generating an infinite amount of URLs.
@@ -157,6 +201,9 @@ def is_valid(url):
             r".*action=.*",      # Catches compose, template, etc.
             r".*[\?&;]c=[dnsm].*[\?&;]o=[ad].*", #catches C=D;O=A ?C=N; O=D
             r".*/author/.*/page/\d+.*", #Ends the WICS crawler trap
+            r".*/login.*", #Get rid of login pages
+            r".*/activity.*", # Found in logs returning 608
+            r".*/projects.*", # Found in logs returning 608
         ]
         
         #Checks if any of the trap_patterns strings are located inside of the url.
@@ -190,3 +237,69 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
+
+##########
+#ANALYTICS
+##########
+
+
+def tokenize_A1(text: str):
+    clean_chars = []
+    for char in text:
+        if (char.isascii() and char.isalnum()) or char.isspace():
+            clean_chars.append(char)
+        else:
+            clean_chars.append(" ")
+    clean_string = "".join(clean_chars).lower()
+    return clean_string.split()
+
+
+def update_common_words_from_soup(soup: BeautifulSoup):
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+
+    text = soup.get_text(separator=" ")
+    tokens = tokenize_A1(text)
+
+    for t in tokens:
+        if t not in Stop_Words and len(t) > 2 and not t[0].isdigit():
+            Common_Words[t] += 1
+    
+
+def update_subdomain_count(url: str):
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+
+    if host.endswith("uci.edu"):
+        Subdomains[host] += 1
+
+
+def write_top_50(out_file="top50_words.txt"):
+    with open(out_file, "w", encoding="utf-8") as f:
+        for w, c in Common_Words.most_common(50):
+            f.write(f"{w}, {c}\n")
+
+def write_subdomains(out_file="subdomains.txt"):
+    with open(out_file, "w", encoding="utf-8") as f:
+        for host in sorted(Subdomains):
+            f.write(f"{host}, {Subdomains[host]}\n")
+
+
+#Takes in a URL and a soup object, and updates the size of the Longest_Page list if the current URL
+#is longer than the current longest.
+def update_size(url, soup):
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+
+    text = soup.get_text(separator=" ")
+    tokens = tokenize_A1(text)
+    
+    if(len(tokens) >= Longest_Page[1]):
+        Longest_Page[0] = url
+        Longest_Page[1] = len(tokens)
+
+
+#Creates a txt file called longest_page that contains the URL and count from the Longest_Page list.
+def write_longest_page(out_file="longest_page.txt"):
+    with open(out_file, "w", encoding="utf-8") as f:
+        f.write(f"{Longest_Page[0]}, {Longest_Page[1]}\n")
