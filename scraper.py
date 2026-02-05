@@ -142,6 +142,11 @@ def is_valid(url, depth=0, max_depth=10):
         #We parse the given url into a parsed object, which contains its domain, path, etc.
         parsed = urlparse(url)
 
+        path = parsed.path.lower()
+
+        if path.startswith("/releases/") and "/src/" in path:
+            return False
+
         #If the parsed object contains a query component, mark the URL as invalid.
         #This is because query pages often lead to traps, due to generating an infinite amount of URLs.
         if parsed.query:
