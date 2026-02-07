@@ -10,7 +10,7 @@ blacklist = set()
 url_depths = {}
 
 Common_Words = Counter()
-Subdomains = defaultdict(int)
+subdomain_pages = defaultdict(set)
 Longest_Page = [" ", 0] #A list containing the current longest URL and it's token count.
 unique_pages = set()
 
@@ -34,6 +34,7 @@ def defrag_url(u):
     u = u.strip()
     u, _frag = urldefrag(u)
     return u
+
 
 
 ###########
@@ -99,14 +100,7 @@ def extract_next_links(url, resp, curr_depth=0):
         #This block catches URLs that have correct href input types (ie. contain a hyperlink), but 
         #don't lead to a valid IP or destination / aren't in the right format.
         try:
-            base = url
-            p = urlparse(base)
-
-            last_segment = p.path.split("/")[-1]
-            if not p.path.endswith("/") and "." not in last_segment:
-                base = base + "/"
-                
-            absolute = urljoin(base, href)
+            absolute = urljoin(url,href)
             absolute = defrag_url(absolute)
             
             if not absolute or absolute in visited or absolute in blacklist:
@@ -252,12 +246,11 @@ def update_common_words_from_soup(soup: BeautifulSoup):
             Common_Words[t] += 1
 
 
-def update_subdomain_count(url: str):
-    parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
-
+def update_subdomain_count(url):
+    p = urlparse(url)
+    host = (p.hostname or "").lower()
     if host.endswith("uci.edu"):
-        Subdomains[host] += 1
+        subdomain_pages[host].add(defrag_url(url))
 
 
 def write_top_50(out_file="top50_words.txt"):
@@ -268,8 +261,8 @@ def write_top_50(out_file="top50_words.txt"):
 
 def write_subdomains(out_file="subdomains.txt"):
     with open(out_file, "w", encoding="utf-8") as f:
-        for host in sorted(Subdomains):
-            f.write(f"{host}, {Subdomains[host]}\n")
+        for host in sorted(subdomain_pages):
+            f.write(f"{host}, {len(subdomain_pages[host])}\n")
 
 
 def update_size(url, soup):
