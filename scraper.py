@@ -70,7 +70,6 @@ def extract_next_links(url, resp, curr_depth=0):
     status = getattr(resp.raw_response, "status_code", None)
     if status is not None and status >= 400:
         blacklist.add(url)
-        print(status)
         return final_links
 
 
@@ -154,6 +153,9 @@ def is_valid(url, depth=0, max_depth=10):
         if "/wp-content/" in path:
             return False
 
+        if "/~eppstein/pix/" in path:
+            return False
+
         if path.startswith("/releases/") and "/src/" in path:
             return False
 
@@ -216,13 +218,15 @@ def is_valid(url, depth=0, max_depth=10):
         elif re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
-            + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
-            + r"|ps|eps|tex|ppt|pptx|doc|docx|xls|xlsx|names"
+            + r"|wav|avi|mov|mpeg|mpg|ram|m4v|mkv|ogg|ogv|pdf"
+            + r"|ps|eps|tex|ppt|pptx|ppsx|doc|docx|xls|xlsx|names"
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
-               return False
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$",
+            parsed.path.lower()
+        ):
+            return False
         
         #If the length of the URL is larger than 300, the URL is invalid.
         if len(url) > 300:
