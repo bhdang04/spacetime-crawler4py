@@ -27,7 +27,8 @@ Stop_Words = {
     "my","not","of","on","or","our","ours","she","so","that","the","their",
     "theirs","them","then","there","these","they","this","those","to","us",
     "was","we","were","what","when","where","which","who","why","will","with",
-    "you","your","yours"
+    "you","your","yours", "can", "all", "one", "two", "about", "more", "may", "also",
+    "other", "each", "first", "new", "use", "using"
 }
 
 ###########
@@ -93,7 +94,6 @@ def extract_next_links(url, resp, curr_depth=0):
     visited.add(url)
     soup = BeautifulSoup(resp.raw_response.content, 'html.parser')
     soup = clean_soup(soup)
-
     text = extract_visible_text(soup)
     tokens = tokenize_A1(text)
 
@@ -110,12 +110,6 @@ def extract_next_links(url, resp, curr_depth=0):
     update_common_words_from_soup(soup)
     update_subdomain_count(url)
     update_size(url, soup)
-
-    if len(visited) % 10 == 0:
-        write_top_50()
-        write_subdomains()
-        write_longest_page()
-        write_unique_pages()
 
     for link in soup.find_all('a'):
         href = link.get('href')
@@ -310,17 +304,12 @@ def tokenize_A1(text: str):
 
 
 def update_common_words_from_soup(soup: BeautifulSoup):
-
     text = soup.get_text(separator=" ")
-
     if len(text) == 0:
         return
-    
     if len(text) > 50000 and (text.count(" ") / len(text)) < 0.01:
         return
-
     tokens = tokenize_A1(text)
-
     for t in tokens:
         if t not in Stop_Words and len(t) > 2 and not t[0].isdigit():
             Common_Words[t] += 1
@@ -355,9 +344,7 @@ def update_size(url, soup):
  
     if len(text) > 50000 and (text.count(" ") / len(text)) < 0.01:
         return
-    
     tokens = tokenize_A1(text)
-    
     if(len(tokens) >= Longest_Page[1]):
         Longest_Page[0] = url
         Longest_Page[1] = len(tokens)
@@ -371,3 +358,12 @@ def write_longest_page(out_file="longest_page.txt"):
 def write_unique_pages(out_file="unique_pages.txt"):
     with open(out_file, "w", encoding="utf-8") as f:
         f.write(str(len(unique_pages)) + "\n")
+
+
+#Finalize report runs it once the frontier is empty
+def finalize_report():
+    write_top_50()
+    write_subdomains()
+    write_longest_page()
+    write_unique_pages()
+    print("[finalize_report] Final analytics written.")
