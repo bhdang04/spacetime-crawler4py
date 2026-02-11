@@ -173,6 +173,9 @@ def is_valid(url, depth=0, max_depth=10):
         
         if "/~cs224" in path:
             return False
+        
+        if "/supplement/randomSmiles100k" in path:
+            return False
 
         if "/~eppstein/pix/" in path:
             return False
@@ -180,10 +183,6 @@ def is_valid(url, depth=0, max_depth=10):
         if path.startswith("/releases/") and "/src/" in path:
             return False
 
-        #If the parsed object contains a query component, mark the URL as invalid.
-        #This is because query pages often lead to traps, due to generating an infinite amount of URLs.
-        # if parsed.query:
-        #     return False
 
         if any(query in parsed.query.lower() for query in ["action=", "tribe-bar-date", r".*/page/\d+.*", "idx=", "do="]):
             return False
@@ -313,6 +312,13 @@ def tokenize_A1(text: str):
 def update_common_words_from_soup(soup: BeautifulSoup):
 
     text = soup.get_text(separator=" ")
+
+    if len(text) == 0:
+        return
+    
+    if len(text) > 50000 and (text.count(" ") / len(text)) < 0.01:
+        return
+
     tokens = tokenize_A1(text)
 
     for t in tokens:
